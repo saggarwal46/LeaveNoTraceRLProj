@@ -32,7 +32,7 @@ def get_env(env_name, safety_param=0):
         else:
             map_name = '8x8'
             max_episode_steps = 100
-            num_training_iterations = 20000
+            num_training_iterations = 10000
         env = FrozenLakeEnv(map_name=map_name)
         done_state = np.zeros(env.nS)
         done_state[0] = 1

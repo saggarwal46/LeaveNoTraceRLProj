@@ -15,6 +15,8 @@
 from gym.envs.mujoco.half_cheetah import HalfCheetahEnv
 from gym.envs.mujoco.walker2d import Walker2dEnv
 from gym.envs.mujoco import mujoco_env
+from gym.wrappers import Monitor
+
 import numpy as np
 import os
 
@@ -115,11 +117,47 @@ class CliffWalkerEnv(Walker2dEnv):
 
 if __name__ == '__main__':
     import time
-    # env = CliffCheetahEnv()
-    env = CliffWalkerEnv()
-    env.reset()
-    for _ in range(10000):
+    import os
+    from gym.wrappers import Monitor, TimeLimit
+
+    # Set headless rendering backend
+    os.environ["MUJOCO_GL"] = "osmesa"
+
+    # Initialize environment with TimeLimit and Monitor
+    env = TimeLimit(CliffWalkerEnv(), max_episode_steps=5000)
+    video_path = "video_output"
+    env = Monitor(env, video_path, force=True)
+
+    # Access the unwrapped base environment
+    base_env = env.env
+
+    # Adjust viewer camera settings
+    def adjust_camera(viewer):
+        viewer.cam.distance =  10.0     # Zoom out for a broader view
+        viewer.cam.elevation = -20     # Tilt the view for better perspective
+        viewer.cam.azimuth = 180       # Adjust horizontal rotation
+        viewer.cam.lookat[:] = [0.0, 0.0, 1.0]  # Center focus on the environment
+
+    # Reset the environment and force viewer initialization
+    base_env.reset()
+    base_env.render(mode="human")  # Force viewer initialization
+
+    # Check and adjust the viewer
+    
+
+    # Run the environment and record video
+    done = False
+    env.reset()  # Ensure proper reset before starting the loop
+    for _ in range(1000):
         action = env.action_space.sample()
-        env.step(action)
-        env.render()
-        time.sleep(0.01)
+        _, _, done, _ = env.step(action)
+        if hasattr(base_env, 'viewer') and base_env.viewer is not None:
+            adjust_camera(base_env.viewer)
+        else:
+            print("Viewer is not initialized. Ensure render() is called to initialize it.")
+        if done:
+            env.reset()  # Reset the environment when done
+
+    # Close environment
+    env.close()
+    print(f"Video saved to {video_path}")

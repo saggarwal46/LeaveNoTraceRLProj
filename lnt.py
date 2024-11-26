@@ -17,11 +17,24 @@ from coach_util import Transition, RunPhase
 from gym import Wrapper
 from gym.wrappers.time_limit import TimeLimit
 import numpy as np
+import json
+import os
+import matplotlib
+matplotlib.use('Agg')
+
+import tensorflow as tf
 
 
 class SafetyWrapper(Wrapper):
     # TODO: allow user to specify number of reset attempts. Currently fixed at 1.
-    def __init__(self, env, reset_agent, reset_reward_fn, reset_done_fn, q_min):
+    def __init__(self, 
+                 env,
+                 log_dir,
+                 reset_agent,
+                 reset_reward_fn,
+                 reset_done_fn,
+                 q_min,
+                 ):
         '''
         A SafetyWrapper protects the inner environment from danerous actions.
 
@@ -49,6 +62,18 @@ class SafetyWrapper(Wrapper):
         self._episode_rewards = []  # Rewards for the current episode
         self._reset_history = []
         self._reward_history = []
+        
+        self._episode_count = 0
+        
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        self.log_dir = log_dir
+        # self.session = tf.Session(config=tf.ConfigProto(
+        #     log_device_placement=True, allow_soft_placement=True))
+        # self.summary_writer = tf.summary.FileWriter(log_dir)
+        # self.summary_writer = tf.summary.FileWriter(log_dir)
+        # self.sess = tf.Session()
+
 
     def _reset(self):
         '''Internal implementation of reset() that returns additional info.'''
@@ -76,10 +101,12 @@ class SafetyWrapper(Wrapper):
         if not reset_done:
             obs = self.env.reset()
             self._total_resets += 1
-
+            
         # Log metrics
         self._reset_history.append(self._total_resets)
         self._reward_history.append(np.mean(self._episode_rewards))
+        self._episode_count += 1
+
         self._episode_rewards = []
 
         # If the agent takes an action that causes an early abort the agent
@@ -115,15 +142,15 @@ class SafetyWrapper(Wrapper):
         '''
 
         import matplotlib.pyplot as plt
-        import json
-        import os
+
+
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         data = {
             'reward_history': self._reward_history,
             'reset_history': self._reset_history
         }
-        with open(os.path.join(output_dir, 'data.json'), 'w') as f:
+        with open(os.path.join(self.log_dir, 'data.json'), 'w') as f:
             json.dump(data, f)
 
         # Prepare data for plotting
@@ -147,6 +174,6 @@ class SafetyWrapper(Wrapper):
         ax2.set_ylabel('num. resets', color='b', fontsize=20)
         ax2.tick_params('y', colors='b')
         ax1.set_xlabel('num. episodes', fontsize=20)
-        plt.savefig(os.path.join(output_dir, 'plot.png'))
+        plt.savefig(os.path.join(output_dir, 'plot1.png'))
 
-        plt.show()
+        # plt.show()
