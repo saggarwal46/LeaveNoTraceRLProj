@@ -31,8 +31,6 @@ from lnt import SafetyWrapper
 import tensorflow as tf
 from tensorboardX import SummaryWriter
 
-print("HELLO", logger.csv_path)
-
 def update_tensorboard_mets(self, phase=RunPhase.TRAIN):
         self.summary_writer.add_scalar('Current Episode', self.current_episode, self.training_iteration)
         self.summary_writer.add_scalar('In Heatup', int(phase == RunPhase.HEATUP), self.training_iteration)

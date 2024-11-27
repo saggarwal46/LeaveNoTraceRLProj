@@ -108,6 +108,8 @@ def get_env(env_name, safety_param=0):
             return (reset_reward_fn(s, a) > 0.7)
         max_episode_steps = 500
         num_training_iterations = 1000000
+
+        # num_training_iterations = 20000
         agent_type = 'DDPGAgent'
 
     elif env_name == 'cliff-cheetah':

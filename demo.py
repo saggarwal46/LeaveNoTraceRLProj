@@ -52,9 +52,26 @@ def learn_safely(
     
 
 
-def learn_dangerously(env_name):
-    (env, _, agent_params) = get_env(env_name)
-    Agent(env, name='agent', **agent_params).improve()
+def learn_dangerously(
+    env_name,
+    safety_param,
+    output_dir,
+    exp_name 
+    ):
+    # print("LEARNING DANGEROUSY")
+    log_dir = os.path.join(output_dir, exp_name)
+    (env, lnt_params, agent_params) = get_env(env_name)
+    safe_env = SafetyWrapper(env=env,
+                             log_dir=log_dir,
+                             reset_agent=None,
+                             **lnt_params)
+    agent = Agent(safe_env, log_dir=os.path.join(log_dir, 'forward_only'), name='agent', **agent_params)
+    agent.improve()
+
+
+    # 3. Safely learn to solve the task.
+    out = agent.improve()
+    agent.tf_writer_close()
 
 
 if __name__ == '__main__':
@@ -68,9 +85,9 @@ if __name__ == '__main__':
                               'the agent safer. A reasonable value is 0.3'))
     parser.add_argument('--output_dir', type=str, default='./tmp',
                         help='Folder for storing results')
-    parser.add_argument('--learn_safely', type=bool, default=True,
+    parser.add_argument('--learn_safely', action='store_true',
                         help=('Whether to learn safely using '
-                              'Leave No Trace'))
+                            'Leave No Trace'))
     parser.add_argument('--exp_name', type=str, required=True,
                         help='Experiment Name')
     
@@ -81,4 +98,5 @@ if __name__ == '__main__':
         learn_safely(args.env_name, args.safety_param,
                      args.output_dir, args.exp_name)
     else:
-        learn_dangerously(args.env_name)
+        learn_dangerously(args.env_name, args.safety_param,
+                     args.output_dir, args.exp_name)

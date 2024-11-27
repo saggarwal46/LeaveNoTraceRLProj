@@ -50,7 +50,9 @@ class SafetyWrapper(Wrapper):
         assert isinstance(env, TimeLimit)
         super(SafetyWrapper, self).__init__(env)
         self._reset_agent = reset_agent
-        self._reset_agent.exploration_policy.change_phase(RunPhase.TRAIN)
+        if reset_agent is not None:
+            self._reset_agent.exploration_policy.change_phase(RunPhase.TRAIN)
+        # print("RESET AGENT", reset_agent)
         self.env._reset_reward_fn = reset_reward_fn
         self.env._reset_done_fn = reset_done_fn
         self._max_episode_steps = env._max_episode_steps
@@ -120,16 +122,29 @@ class SafetyWrapper(Wrapper):
         return (obs, r, done, info)
 
     def reset(self):
+        if self._reset_agent is None:
+            # print("RESET HERE")
+            obs = self.env.reset()
+            self._total_resets += 1
+            # print(self._total_resets)
+            return obs
         (obs, r, done, info) = self._reset()
         return obs
 
     def step(self, action):
-        reset_q = self._reset_agent.get_q(self._obs, action)
-        if reset_q < self._q_min:
-            (obs, r, done, info) = self._reset()
-        else:
-            (obs, r, done, info) = self.env.step(action)
-            self._episode_rewards.append(r)
+        if self._reset_agent is not None:
+            reset_q = self._reset_agent.get_q(self._obs, action)
+            if reset_q < self._q_min:
+                (obs, r, done, info) = self._reset()
+                self._obs = obs
+            else:
+                (obs, r, done, info) = self.env.step(action)
+                self._episode_rewards.append(r)
+            self._obs = obs
+            return (obs, r, done, info)
+        # print("STEP HERE")
+        (obs, r, done, info) = self.env.step(action)
+        self._episode_rewards.append(r)
         self._obs = obs
         return (obs, r, done, info)
 
