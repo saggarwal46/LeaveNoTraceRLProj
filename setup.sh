@@ -36,6 +36,7 @@ pip install numpy==1.14.5
 # conda update --all -y
 conda install -c conda-forge  glew glfw mesalib=23.0.0 -y
 
-
+conda install cudatoolkit=10.0
+conda install cudnn=7.3.1
 #for installing cuda_8.0.61_375.26_linux-run    
 # export $PERL5LIB
