@@ -45,7 +45,7 @@ def learn_safely(
     
     decay_params = {
         "initial_value": 0.9,
-        "min_value": safety_param,
+        "min_value": 1 - safety_param,
         "total_epochs": agent_params['num_training_iterations'], 
         "decay_rate": 0.99999,
     }
