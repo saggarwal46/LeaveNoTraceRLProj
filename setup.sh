@@ -27,11 +27,13 @@ pip install --ignore-installed box2d-py
 pip install --ignore-installed pachi-py
 
 pip3 install tensorflow-gpu==1.14
+pip install tensorboardX
 pip install scipy==1.1.0 pandas==0.20.2 Pillow==8.4.0 pygame==1.9.3
 # pip3 install tensorflow==1.4.1 --ignore-installed
-# pip3 install tensorflow-gpu==1.4.1 --ignore-installed
+# pip3 install tensorflow-gpuy==1.15 
 # pip install numpy==1.13.0
 pip install numpy==1.14.5
+
 
 # conda update --all -y
 conda install -c conda-forge  glew glfw mesalib=23.0.0 -y

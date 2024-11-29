@@ -19,8 +19,7 @@ from gym.wrappers.time_limit import TimeLimit
 import numpy as np
 import json
 import os
-import matplotlib
-matplotlib.use('Agg')
+
 
 import tensorflow as tf
 
@@ -30,10 +29,11 @@ class SafetyWrapper(Wrapper):
     def __init__(self, 
                  env,
                  log_dir,
+                 q_min_func,
                  reset_agent,
                  reset_reward_fn,
                  reset_done_fn,
-                 q_min,
+                 **kwargs,
                  ):
         '''
         A SafetyWrapper protects the inner environment from danerous actions.
@@ -56,7 +56,8 @@ class SafetyWrapper(Wrapper):
         self.env._reset_reward_fn = reset_reward_fn
         self.env._reset_done_fn = reset_done_fn
         self._max_episode_steps = env._max_episode_steps
-        self._q_min = q_min
+        self.q_min_func = q_min_func
+        # self._q_min = q_min
         self._obs = env.reset()
 
         # Setup internal structures for logging metrics.
@@ -64,6 +65,7 @@ class SafetyWrapper(Wrapper):
         self._episode_rewards = []  # Rewards for the current episode
         self._reset_history = []
         self._reward_history = []
+        self._training_iter = 0
         
         self._episode_count = 0
         
@@ -134,7 +136,9 @@ class SafetyWrapper(Wrapper):
     def step(self, action):
         if self._reset_agent is not None:
             reset_q = self._reset_agent.get_q(self._obs, action)
-            if reset_q < self._q_min:
+            # print(f"USING TRAINING ITER: {self._training_iter}")
+            q_min_thresh, _ = self.q_min_func(self._training_iter)
+            if reset_q < q_min_thresh:
                 (obs, r, done, info) = self._reset()
                 self._obs = obs
             else:
@@ -192,3 +196,7 @@ class SafetyWrapper(Wrapper):
         plt.savefig(os.path.join(output_dir, 'plot1.png'))
 
         # plt.show()
+        
+    def training_iter_callback(self, iter):
+        self._training_iter = iter
+        # print(f"UPDATED TRAINING ITER: {self._training_iter}")
