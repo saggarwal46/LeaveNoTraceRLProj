@@ -24,9 +24,9 @@ if __name__ == '__main__':
     parser.add_argument('--env_name', type=str, default='cliff-walker',
                         help=('Name of the environment. The currently '
                               'supported environments are: %s') % env_list)
-    # parser.add_argument('--safety_param', type=float, default=0.3,
-    #                     help=('Increasing the safety_param from 0 to 1 makes '
-    #                           'the agent safer. A reasonable value is 0.3'))
+    parser.add_argument('--safety_param', type=float, default=0.4,
+                        help=('Increasing the safety_param from 0 to 1 makes '
+                              'the agent safer. A reasonable value is 0.3'))
     parser.add_argument('--output_dir', type=str, default='./tmp',
                         help='Folder for storing results')
     parser.add_argument('--exp_name', type=str, required=True,
@@ -34,7 +34,6 @@ if __name__ == '__main__':
     
 
     args = parser.parse_args()
-    assert 0 < args.safety_param < 1, 'safety_param should be between 0 and 1.'
     decay_types = ["cosine", "linear", "exponential"]
     for d in decay_types:
         learn_safely(args.env_name, args.safety_param,
