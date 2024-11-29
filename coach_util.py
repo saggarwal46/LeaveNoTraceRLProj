@@ -76,6 +76,32 @@ def Agent(env, **kwargs):
     agent_type = kwargs.pop('agent_type')
     if agent_type == 'DDQNAgent':
         return DDQNAgent(env, **kwargs)
+    elif agent_type == 'DDQNAgentch':
+        print(f"is it even hitting this")
+        q_reset = 10.0
+        q_forward = 10.0
+        return DDQNAgent2(env, q_reset=q_reset, q_forward=q_forward **kwargs)
+    elif agent_type == 'DDPGAgent':
+        # raise NotImplementedError('Support for DDPG is not yet implemented')
+        return DDPGAgent(env, **kwargs)
+    else:
+        raise ValueError('Unknown agent_type: %s' % agent_type)
+    
+def Agent2(env, **kwargs):
+    print(f"I bet aman didn't even hit this")
+    agent_type = kwargs.pop('agent_type') 
+    print(f"Agent type is {agent_type}")
+    agent_type = "DDQNAgent"
+    if agent_type == 'DDQNAgent':
+        print(f"I bet brian didn't even hit this")
+        q_reset = 10.0
+        q_forward = 10.0
+        return DDQNAgent2(env,q_reset=q_reset, q_forward=q_forward, **kwargs)
+    elif agent_type == 'DDQNAgentch':
+        print(f"is it even hitting this")
+        q_reset = 10.0
+        q_forward = 10.0
+        return DDQNAgent2(env, q_reset=q_reset, q_forward=q_forward, **kwargs)
     elif agent_type == 'DDPGAgent':
         # raise NotImplementedError('Support for DDPG is not yet implemented')
         return DDPGAgent(env, **kwargs)
@@ -109,6 +135,53 @@ class DDQNAgent(_DDQNAgent):
 
     def get_q(self, obs, action):
         inputs = {'observation': obs[None, :, None]}
+        outputs = self.main_network.target_network.predict(inputs)
+        return outputs[0, action]
+    
+    def update_log(self, phase=RunPhase.TRAIN):
+        super().update_log(phase)
+        update_tensorboard_mets(self, phase)
+        if hasattr(self.env.env, "_total_resets"):
+            self.logger.create_signal_value('Total Resets',  self.env.env._total_resets)
+    
+    def tf_writer_close(self):
+        """Close the TensorFlow summary writer when done."""
+        self.summary_writer.close()
+
+# Overwrite the coach agents to automatically use the default parameters
+class DDQNAgent2(_DDQNAgent):
+    def __init__(self, env, name, q_reset, q_forward, log_dir, num_training_iterations=10000):
+        tuning_params = Preset(agent=DQN, env=GymVectorObservation,
+                               exploration=ExplorationParameters)
+        self.name = name
+        tuning_params.sess = tf.Session()
+        tuning_params.agent.discount = 0.99
+        tuning_params.visualization.dump_csv = True
+        tuning_params.num_training_iterations = num_training_iterations
+        tuning_params.num_heatup_steps = env._max_episode_steps * tuning_params.batch_size
+        tuning_params.exploration.epsilon_decay_steps = 0.66 * num_training_iterations
+        self.q_reset = q_reset
+        self.q_forward = q_forward
+        print(f"original env is {env} with type {type(env)}")
+        # env = [env,q_reset,q_forward]
+        print(f"env of the reset is {env.reset()}")
+        print(f"modified env is {env} with type {type(env)}")
+        env = GymEnvironmentWrapper(tuning_params, env)
+        super(DDQNAgent, self).__init__(env, tuning_params, name=name)
+        
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+
+        
+        
+        self.summary_writer = SummaryWriter(log_dir)
+        self.logger.set_dump_dir(log_dir, add_timestamp='True', filename="metrics")
+        # print(f"ENV SAFETY WRAPPER {self.name}", isinstance(self.env, SafetyWrapper))
+
+
+
+    def get_q(self, obs, qforward,qreset, action):
+        inputs = {'observation': [obs[None, :, None],qforward,qreset]}
         outputs = self.main_network.target_network.predict(inputs)
         return outputs[0, action]
     

@@ -192,3 +192,180 @@ class SafetyWrapper(Wrapper):
         plt.savefig(os.path.join(output_dir, 'plot1.png'))
 
         # plt.show()
+
+class SafetyWrapper2(Wrapper):
+    # TODO: allow user to specify number of reset attempts. Currently fixed at 1.
+    def __init__(self, 
+                 env,
+                 q_forward,
+                 q_reset,
+                 log_dir,
+                 reset_agent,
+                 reset_reward_fn,
+                 reset_done_fn,
+                 q_min,
+                 ):
+        '''
+        A SafetyWrapper protects the inner environment from danerous actions.
+
+        args:
+            env: Environment implementing the Gym API
+            reset_agent: an agent implementing the coach Agent API
+            reset_reward_fn: a function that returns the reset agent reward
+                for a given observation.
+            reset_done_fn: a function that returns whether the reset agent
+                has successfully reset.
+            q_min: a float that is used to decide when to do early aborts.
+        '''
+        assert isinstance(env, TimeLimit)
+        super(SafetyWrapper2, self).__init__(env)
+        self._choose_agent = reset_agent
+        if reset_agent is not None:
+            self._choose_agent.exploration_policy.change_phase(RunPhase.TRAIN)
+        # print("RESET AGENT", reset_agent)
+        self.env._reset_reward_fn = reset_reward_fn
+        self.env._reset_done_fn = reset_done_fn
+        self._max_episode_steps = env._max_episode_steps
+        self._q_min = q_min
+        self._obs = env.reset()
+
+        # Setup internal structures for logging metrics.
+        self._total_resets = 0  # Total resets taken during training
+        self._episode_rewards = []  # Rewards for the current episode
+        self._reset_history = []
+        self._reward_history = []
+        
+        self._episode_count = 0
+        
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        self.log_dir = log_dir
+        # self.session = tf.Session(config=tf.ConfigProto(
+        #     log_device_placement=True, allow_soft_placement=True))
+        # self.summary_writer = tf.summary.FileWriter(log_dir)
+        # self.summary_writer = tf.summary.FileWriter(log_dir)
+        # self.sess = tf.Session()
+
+
+    def _reset(self):
+        '''Internal implementation of reset() that returns additional info.'''
+        obs = self._obs
+        obs_vec = [np.argmax(obs)]
+        for t in range(self._max_episode_steps):
+            (reset_action, _) = self._choose_agent.choose_action(
+                {'observation': obs[:, None]}, phase=RunPhase.TRAIN)
+            (next_obs, r, _, info) = self.env.step(reset_action)
+            reset_reward = self.env._reset_reward_fn(next_obs, reset_action)
+            reset_done = self.env._reset_done_fn(next_obs)
+            transition = Transition({'observation': obs[:, None]},
+                                    reset_action, reset_reward,
+                                    {'observation': next_obs[:, None]},
+                                    reset_done)
+            self._choose_agent.memory.store(transition)
+            obs = next_obs
+            obs_vec.append(np.argmax(obs))
+            memory_size = self._choose_agent.memory.num_transitions_in_complete_episodes()
+            if memory_size > self._choose_agent.tp.batch_size:
+                # Do one training iteration of the reset agent
+                self._choose_agent.train()
+            if reset_done:
+                break
+        if not reset_done:
+            obs = self.env.reset()
+            self._total_resets += 1
+            
+        # Log metrics
+        self._reset_history.append(self._total_resets)
+        self._reward_history.append(np.mean(self._episode_rewards))
+        self._episode_count += 1
+
+        self._episode_rewards = []
+
+        # If the agent takes an action that causes an early abort the agent
+        # shouldn't believe that the episode terminates. Because the reward is
+        # negative, the agent would be incentivized to do early aborts as
+        # quickly as possible. Thus, we set done = False.
+        done = False
+
+        # Reset the elapsed steps back to 0
+        self.env._elapsed_steps = 0
+        return (obs, r, done, info)
+
+    def reset(self):
+        if self._choose_agent is None:
+            # print("RESET HERE")
+            obs = self.env.reset()
+            self._total_resets += 1
+            # print(self._total_resets)
+            return obs
+        (obs, r, done, info) = self._reset()
+        return obs
+
+    def step(self, action):
+        if self._choose_agent is not None:
+            q_forward, q_reset = 1.0, 1.0
+            # [0,0] # action space
+            # [1,0] # forward
+            # [0,1] # reset
+            action1 = [1, 0]
+            action2 = [0, 1]
+            forward_qres = self._choose_agent.get_q(self._obs, q_forward, q_reset, action1)
+            reset_qres = self._choose_agent.get_q(self._obs, q_forward, q_reset, action2)
+            if reset_qres > forward_qres:
+                (obs, r, done, info) = self._reset()
+                self._obs = obs
+            else:
+                (obs, r, done, info) = self.env.step(action)
+                self._episode_rewards.append(r)
+            self._obs = obs
+            return (obs, r, done, info)
+        # print("STEP HERE")
+        (obs, r, done, info) = self.env.step(action)
+        self._episode_rewards.append(r)
+        self._obs = obs
+        return (obs, r, done, info)
+
+    def plot_metrics(self, output_dir='/tmp'):
+        '''
+        Plot metrics collected during training.
+
+        args:
+            output_dir: (optional) folder path for saving results.
+        '''
+
+        import matplotlib.pyplot as plt
+
+
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        data = {
+            'reward_history': self._reward_history,
+            'reset_history': self._reset_history
+        }
+        with open(os.path.join(self.log_dir, 'data.json'), 'w') as f:
+            json.dump(data, f)
+
+        # Prepare data for plotting
+        rewards = np.array(self._reward_history)
+        lnt_resets = np.array(self._reset_history)
+        num_episodes = len(rewards)
+        baseline_resets = np.arange(num_episodes)
+        episodes = np.arange(num_episodes)
+
+        # Plot the data
+        fig = plt.figure(figsize=(8, 6))
+        ax1 = fig.gca()
+        ax2 = ax1.twinx()
+        ax1.plot(episodes, rewards, 'g.')
+        ax2.plot(episodes, lnt_resets, 'b-')
+        ax2.plot(episodes, baseline_resets, 'b--')
+
+        # Label the plot
+        ax1.set_ylabel('average step reward', color='g', fontsize=20)
+        ax1.tick_params('y', colors='g')
+        ax2.set_ylabel('num. resets', color='b', fontsize=20)
+        ax2.tick_params('y', colors='b')
+        ax1.set_xlabel('num. episodes', fontsize=20)
+        plt.savefig(os.path.join(output_dir, 'plot1.png'))
+
+        # plt.show()

@@ -13,9 +13,9 @@
 # limitations under the License.
 
 import argparse
-from coach_util import Agent
+from coach_util import Agent, Agent2
 from env_util import get_env
-from lnt import SafetyWrapper
+from lnt import SafetyWrapper, SafetyWrapper2
 import os
 
 import logging
@@ -44,7 +44,43 @@ def learn_safely(
     # 3. Safely learn to solve the task.
     fw_agent = Agent(env=safe_env, log_dir=os.path.join(log_dir, 'forward'), name='forward_agent', **agent_params)
     out = fw_agent.improve()
+    ch_agent = Agent(env, log_dir=os.path.join(log_dir, 'reset'), name='reset_agent', **agent_params)
+    reset_agent.tf_writer_close()
+    fw_agent.tf_writer_close()
+    # Plot the reward and resets throughout training
+    # safe_env.plot_metrics(output_dir)
+
+def learn_aman(
+    env_name,
+    safety_param,
+    output_dir,
+    exp_name):
+    print(f"im hitting this")
+    (env, lnt_params, agent_params) = get_env(env_name, safety_param)
+
+    log_dir = os.path.join(output_dir, exp_name)
+    # 1. Create a reset agent that will reset the environment
+    reset_agent = Agent(env, log_dir=os.path.join(log_dir, 'reset'), name='reset_agent', **agent_params)
+
+    # 2. Create a wrapper around the environment to protect it
+    safe_env = SafetyWrapper(env=env,
+                             log_dir=log_dir,
+                             reset_agent=reset_agent,
+                             **lnt_params)
+
+    # 3. Safely learn to solve the task.
+    fw_agent = Agent(env=safe_env, log_dir=os.path.join(log_dir, 'forward'), name='forward_agent', **agent_params)
     
+    # ch_params = agent_params.copy()
+    # ch_params['agent_type'] = 'DDQNAgentch'
+    print("are we even getting here")
+    print(f"env is {env.reset()}")
+    # ch_env = SafetyWrapper2(env=env,
+    #                          log_dir=log_dir,
+    #                          reset_agent=reset_agent,
+    #                          **lnt_params)
+    ch_agent = Agent2(env=safe_env, log_dir=os.path.join(log_dir, 'ch'), name='ch_agent', **agent_params)
+    out = fw_agent.improve()
     reset_agent.tf_writer_close()
     fw_agent.tf_writer_close()
     # Plot the reward and resets throughout training
@@ -90,13 +126,18 @@ if __name__ == '__main__':
                             'Leave No Trace'))
     parser.add_argument('--exp_name', type=str, required=True,
                         help='Experiment Name')
-    
+    parser.add_argument('--learn_ch', action='store_true',
+                        help=('q1.5'))
 
     args = parser.parse_args()
     assert 0 < args.safety_param < 1, 'safety_param should be between 0 and 1.'
     if args.learn_safely:
-        learn_safely(args.env_name, args.safety_param,
-                     args.output_dir, args.exp_name)
+        if args.learn_ch:
+            learn_aman(args.env_name, args.safety_param,
+                        args.output_dir, args.exp_name)
+        else:
+            learn_safely(args.env_name, args.safety_param,
+                        args.output_dir, args.exp_name)
     else:
         learn_dangerously(args.env_name, args.safety_param,
                      args.output_dir, args.exp_name)
