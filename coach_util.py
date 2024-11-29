@@ -41,6 +41,10 @@ def update_tensorboard_mets(self, phase=RunPhase.TRAIN):
         self.summary_writer.add_scalar('Epsilon', self.exploration_policy.get_control_param(), self.training_iteration)
         if hasattr(self.env.env, "_total_resets"):
             self.summary_writer.add_scalar('Total Resets', self.env.env._total_resets, self.training_iteration)
+        if hasattr(self.env.env, "q_min_func"):
+            q_min, safety_param = self.env.env.q_min_func(self.env.env._training_iter)
+            self.summary_writer.add_scalar('q_min', q_min, self.training_iteration)
+            self.summary_writer.add_scalar('safety_param', safety_param, self.training_iteration)
         if phase == RunPhase.TRAIN:
             self.summary_writer.add_scalar(
                 "Training Reward", 
@@ -86,7 +90,7 @@ def Agent(env, **kwargs):
 # Overwrite the coach agents to automatically use the default parameters
 class DDQNAgent(_DDQNAgent):
     def __init__(self, env, name,  log_dir, num_training_iterations=10000):
-        tuning_params = Preset(agent=DQN, env=GymVectorObservation,
+        tuning_params = Preset(agent=DQN(), env=GymVectorObservation,
                                exploration=ExplorationParameters)
         self.name = name
         tuning_params.sess = tf.Session()
@@ -117,6 +121,10 @@ class DDQNAgent(_DDQNAgent):
         update_tensorboard_mets(self, phase)
         if hasattr(self.env.env, "_total_resets"):
             self.logger.create_signal_value('Total Resets',  self.env.env._total_resets)
+        if hasattr(self.env.env, "q_min_func"):
+            q_min, safety_param = self.env.env.q_min_func(self.env.env._training_iter)
+            self.logger.create_signal_value('q_min', q_min, self.training_iteration)
+            self.logger.create_signal_value('safety_param', safety_param, self.training_iteration)
     
     def tf_writer_close(self):
         """Close the TensorFlow summary writer when done."""
@@ -129,7 +137,6 @@ class DDPGAgent(_DDPGAgent):
         self.name = name
         tuning_params = Preset(agent=DDPG(), env=GymVectorObservation,
                                exploration=OUExploration)
-        print(name , DDPG.__dict__)
         tuning_params.sess = tf.Session()
         tuning_params.agent.discount = 0.999
         tuning_params.visualization.dump_csv = True
