@@ -81,12 +81,13 @@ class CliffCheetahEnv(HalfCheetahEnv):
 
 
 class CliffWalkerEnv(Walker2dEnv):
-    def __init__(self):
+    def __init__(self, with_reset_cost=False, use_custom_step=False):
         envs_folder = os.path.dirname(os.path.abspath(__file__))
         xml_filename = os.path.join(envs_folder,
                                     'assets/cliff_walker.xml')
+        self.with_reset_cost = with_reset_cost
+        self.use_custom_step = use_custom_step
         mujoco_env.MujocoEnv.__init__(self, xml_filename, 5)
-
     def step(self, a):
         (s, _, done, info) = super(CliffWalkerEnv, self).step(a)
         r = self._get_rewards(s, a)[0]
@@ -97,6 +98,24 @@ class CliffWalkerEnv(Walker2dEnv):
         qpos = self.model.data.qpos
         qvel = self.model.data.qvel
         return np.concatenate([qpos[:], np.clip(qvel, -10, 10)]).ravel()
+    
+    def falling_off_cliff(self, s):
+        x = s[0]
+        torso_height = s[1]
+        return torso_height < 0.7 and np.abs(x) > 5.8
+    
+    def fell_on_cliff(self, s):
+        x = s[0]
+        torso_height = s[1]
+        return torso_height < 0.7 and np.abs(x) <= 5.8
+    
+    def reset_cost(self, s):
+        if self.falling_off_cliff(s):
+            return 1.0  # Off the cliff
+        elif self.fell_on_cliff(s):
+            return 0.3  # On the cliff but fallen
+        else:
+            return 0.0  # Minimal deviation
 
     def _get_rewards(self, s, a):
         x = s[0]
@@ -112,7 +131,26 @@ class CliffWalkerEnv(Walker2dEnv):
         reset_location_reward = 0.8 * (np.abs(x) < 0.5) + 0.2 * (1 - 0.2 * np.abs(x))
         forward_reward = 0.5 * run_reward + 0.25 * stand_reward + 0.25 * control_reward
         reset_reward = 0.5 * reset_location_reward + 0.25 * stand_reward + 0.25 * control_reward
+        
+        if self.with_reset_cost:
+            reset_cost = self.reset_cost(s)
+            return forward_reward - reset_cost, reset_reward - reset_cost
         return (forward_reward, reset_reward)
+    
+    def _step(self, a):
+        if not self.use_custom_step:
+            return super(Walker2dEnv, self)._step(a)
+        posbefore = self.model.data.qpos[0, 0]
+        self.do_simulation(a, self.frame_skip)
+        posafter, height, ang = self.model.data.qpos[0:3, 0]
+        alive_bonus = 1.0
+        reward = ((posafter - posbefore) / self.dt)
+        reward += alive_bonus
+        reward -= 1e-3 * np.square(a).sum()
+        done = not (height < 2.0 and
+                    ang > -1.0 and ang < 1.0)
+        ob = self._get_obs()
+        return ob, reward, done, {}
 
 
 if __name__ == '__main__':
