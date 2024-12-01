@@ -45,6 +45,10 @@ def update_tensorboard_mets(self, phase=RunPhase.TRAIN):
             q_min, safety_param = self.env.env.q_min_func(self.env.env._training_iter)
             self.summary_writer.add_scalar('q_min', q_min, self.training_iteration)
             self.summary_writer.add_scalar('safety_param', safety_param, self.training_iteration)
+        if hasattr(self.env.env, "_falling_off_cliff_reset_cnt"):
+            self.summary_writer.add_scalar('falling_off_cliff_reset', self.env.env._falling_off_cliff_reset_cnt, self.training_iteration)
+        if hasattr(self.env.env, "_falling_on_cliff_reset_cnt"):
+            self.summary_writer.add_scalar('falling_on_cliff_reset', self.env.env._falling_on_cliff_reset_cnt, self.training_iteration)
         if phase == RunPhase.TRAIN:
             self.summary_writer.add_scalar(
                 "Training Reward", 
@@ -163,6 +167,10 @@ class DDPGAgent(_DDPGAgent):
         update_tensorboard_mets(self, phase)
         if hasattr(self.env.env, "_total_resets"):
             self.logger.create_signal_value('Total Resets',  self.env.env._total_resets)
+        if hasattr(self.env.env, "_falling_off_cliff_reset_cnt"):
+            self.logger.create_signal_value('falling_off_cliff_reset', self.env.env._falling_off_cliff_reset_cnt)
+        if hasattr(self.env.env, "_falling_on_cliff_reset_cnt"):
+            self.logger.create_signal_value('falling_on_cliff_reset', self.env.env._falling_on_cliff_reset_cnt)
     
     def tf_writer_close(self):
         """Close the TensorFlow summary writer when done."""

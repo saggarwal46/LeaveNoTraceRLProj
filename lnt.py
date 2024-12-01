@@ -69,6 +69,8 @@ class SafetyWrapper(Wrapper):
         
         self._episode_count = 0
         
+        self._falling_off_cliff_reset_cnt = 0
+        self._falling_on_cliff_reset_cnt = 0
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
         self.log_dir = log_dir
@@ -103,8 +105,14 @@ class SafetyWrapper(Wrapper):
             if reset_done:
                 break
         if not reset_done:
+            curr_obs = obs
             obs = self.env.reset()
             self._total_resets += 1
+            if self.env.env.falling_off_cliff(curr_obs):
+                self._falling_off_cliff_reset_cnt += 1
+            if self.env.env.fell_on_cliff(curr_obs):
+                self._falling_on_cliff_reset_cnt += 1
+            
             
         # Log metrics
         self._reset_history.append(self._total_resets)
@@ -128,6 +136,10 @@ class SafetyWrapper(Wrapper):
             # print("RESET HERE")
             obs = self.env.reset()
             self._total_resets += 1
+            if self.env.env.falling_off_cliff(self._obs):
+                self._falling_off_cliff_reset_cnt += 1
+            if self.env.env.fell_on_cliff(self._obs):
+                self._falling_on_cliff_reset_cnt += 1
             # print(self._total_resets)
             return obs
         (obs, r, done, info) = self._reset()
