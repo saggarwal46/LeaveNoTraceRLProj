@@ -20,6 +20,7 @@ import numpy as np
 import json
 import os
 
+import torch
 
 import tensorflow as tf
 
@@ -33,6 +34,7 @@ class SafetyWrapper(Wrapper):
                  reset_agent,
                  reset_reward_fn,
                  reset_done_fn,
+                 ch_agent,
                  **kwargs,
                  ):
         '''
@@ -59,7 +61,8 @@ class SafetyWrapper(Wrapper):
         self.q_min_func = q_min_func
         # self._q_min = q_min
         self._obs = env.reset()
-
+        print(f"observation is {self._obs}")
+        self.ch_agent = ch_agent
         # Setup internal structures for logging metrics.
         self._total_resets = 0  # Total resets taken during training
         self._episode_rewards = []  # Rewards for the current episode
@@ -79,6 +82,10 @@ class SafetyWrapper(Wrapper):
         # self.summary_writer = tf.summary.FileWriter(log_dir)
         # self.summary_writer = tf.summary.FileWriter(log_dir)
         # self.sess = tf.Session()
+
+        self.epsilon = 1
+        self.epsilon_min=0.01
+        self.epsilon_decay=0.995
 
 
     def _reset(self):
@@ -108,10 +115,10 @@ class SafetyWrapper(Wrapper):
             curr_obs = obs
             obs = self.env.reset()
             self._total_resets += 1
-            if self.env.env.falling_off_cliff(curr_obs):
-                self._falling_off_cliff_reset_cnt += 1
-            if self.env.env.fell_on_cliff(curr_obs):
-                self._falling_on_cliff_reset_cnt += 1
+            # if self.env.env.falling_off_cliff(curr_obs):
+            #     self._falling_off_cliff_reset_cnt += 1
+            # if self.env.env.fell_on_cliff(curr_obs):
+            #     self._falling_on_cliff_reset_cnt += 1
             
             
         # Log metrics
@@ -148,16 +155,49 @@ class SafetyWrapper(Wrapper):
     def step(self, action):
         if self._reset_agent is not None:
             reset_q = self._reset_agent.get_q(self._obs, action)
-            # print(f"USING TRAINING ITER: {self._training_iter}")
-            q_min_thresh, _ = self.q_min_func(self._training_iter)
-            if reset_q < q_min_thresh:
+            # forward_q = self._forward_agent.get_q(self._obs,action)
+            # state = [env ,forward_q , reset_q]
+            # epsilon = 1
+            # epsilon_min=0.01
+            # epsilon_decay=0.995
+            initial_state = self._obs
+            action2 = self.ch_agent.act(self._obs, self.epsilon) # 0 or 1
+            # print(f"Action is {action2} and type {type(action2)}")
+            if action2 == 0: # if action == 0
                 (obs, r, done, info) = self._reset()
                 self._obs = obs
+                ch_reward = 1 - r
+                # if r==0:
+                #     ch_reward = 1.0
+                # else:
+                #     ch_reward = 0.0
             else:
                 (obs, r, done, info) = self.env.step(action)
                 self._episode_rewards.append(r)
-            self._obs = obs
+                self._obs = obs
+                ch_reward = r
+
+            self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
+            # reward agent for being good boy
+            # ch_reward = torch.Tensor([5])
+            # ch_reward = r
+            self.ch_agent.step(state=initial_state, action=action2, reward=ch_reward, next_state=self._obs, done=done)
             return (obs, r, done, info)
+            
+            
+
+            # # next_state, reward, done, _ = env.step(action)
+            # # print(f"USING TRAINING ITER: {self._training_iter}")
+            # # q_min_thresh, _ = self.q_min_func(self._training_iter)
+            # q_min = -1 * (1. - 0.3) * self._max_episode_steps
+            # if reset_q < q_min: # if action == 0
+            #     (obs, r, done, info) = self._reset()
+            #     self._obs = obs
+            # else:
+            #     (obs, r, done, info) = self.env.step(action)
+            #     self._episode_rewards.append(r)
+            # self._obs = obs
+            # return (obs, r, done, info)
         # print("STEP HERE")
         (obs, r, done, info) = self.env.step(action)
         self._episode_rewards.append(r)

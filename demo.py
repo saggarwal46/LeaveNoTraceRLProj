@@ -28,6 +28,94 @@ logging.getLogger('tensorflow').disabled = True
 import warnings
 warnings.filterwarnings('ignore', category=FutureWarning)
 
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import gym
+from collections import deque
+import random
+
+# Define the Q-network
+class QNetworkpt(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(QNetworkpt, self).__init__()
+        self.fc1 = nn.Linear(state_size, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.fc3 = nn.Linear(128, action_size)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = torch.relu(self.fc2(x))
+        return self.fc3(x)
+
+# Define the DDQN agent
+class DDQNAgentpt:
+    def __init__(self, state_size, action_size, gamma=0.99, lr=0.001, batch_size=64, memory_size=10000, tau=0.1):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.gamma = gamma
+        self.lr = lr
+        self.batch_size = batch_size
+        self.memory = deque(maxlen=memory_size)
+        self.tau = tau  # For soft updates
+        
+        # Q-network and target network
+        self.qnetwork_local = QNetworkpt(state_size, action_size).cuda()
+        self.qnetwork_target = QNetworkpt(state_size, action_size).cuda()
+        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=self.lr)
+        self.loss_fn = nn.MSELoss()
+
+    def act(self, state, epsilon=0.1):
+        state = torch.FloatTensor(state).unsqueeze(0).cuda()
+        if np.random.rand() < epsilon:
+            return np.random.choice(self.action_size)
+        with torch.no_grad():
+            action_values = self.qnetwork_local(state)
+        return torch.argmax(action_values).item()
+
+    def step(self, state, action, reward, next_state, done):
+        # Save experience in replay memory
+        self.memory.append((state, action, reward, next_state, done))
+        if len(self.memory) > self.batch_size:
+            self.learn()
+
+    def learn(self):
+        # Sample a batch of experiences from memory
+        batch = random.sample(self.memory, self.batch_size)
+        states, actions, rewards, next_states, dones = zip(*batch)
+        # print(f"types are {type(states[0]), type(actions), type(rewards), type(next_states), type(dones)}")
+        states = torch.FloatTensor(np.array(states)).cuda()
+        actions = torch.LongTensor(np.array(actions)).unsqueeze(1).cuda()
+        rewards = torch.FloatTensor(np.array(rewards)).unsqueeze(1).cuda()
+        next_states = torch.FloatTensor(np.array(next_states)).cuda()
+        dones = torch.FloatTensor(np.array(dones)).unsqueeze(1).cuda()
+
+        # Get Q values for the chosen actions
+        q_values = self.qnetwork_local(states).gather(1, actions)
+        
+        # Compute the target Q values
+        with torch.no_grad():
+            next_actions = self.qnetwork_local(next_states).argmax(1).unsqueeze(1)
+            q_targets_next = self.qnetwork_target(next_states).gather(1, next_actions)
+            q_targets = rewards + (self.gamma * q_targets_next * (1 - dones))
+        
+        # Compute the loss
+        loss = self.loss_fn(q_values, q_targets)
+        
+        # Perform a gradient descent step
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        # Soft update of the target network parameters
+        self.soft_update(self.qnetwork_local, self.qnetwork_target)
+
+    def soft_update(self, local_model, target_model):
+        for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
+            target_param.data.copy_(self.tau * local_param.data + (1.0 - self.tau) * target_param.data)
+
 def learn_safely(
     env_name,
     safety_param,
@@ -63,6 +151,38 @@ def learn_safely(
     fw_agent = Agent(env=safe_env, log_dir=os.path.join(log_dir, 'forward'), name='forward_agent', **agent_params)
     out = fw_agent.improve()
     
+    reset_agent.tf_writer_close()
+    fw_agent.tf_writer_close()
+    # Plot the reward and resets throughout training
+    # safe_env.plot_metrics(output_dir)
+
+def learn_aman(
+    env_name,
+    safety_param,
+    output_dir,
+    exp_name):
+    print(f"im hitting this")
+    (env, lnt_params, agent_params) = get_env(env_name, safety_param)
+
+    log_dir = os.path.join(output_dir, exp_name)
+    # 1. Create a reset agent that will reset the environment
+    reset_agent = Agent(env, log_dir=os.path.join(log_dir, 'reset'), name='reset_agent', **agent_params)
+    ch_agent = DDQNAgentpt(10,2)
+    # 2. Create a wrapper around the environment to protect it
+    safe_env = SafetyWrapper(env=env,
+                             log_dir=log_dir,
+                             q_min_func=None,
+                             reset_agent=reset_agent,
+                             ch_agent=ch_agent,
+                             **lnt_params)
+
+    # 3. Safely learn to solve the task.
+    fw_agent = Agent(env=safe_env, log_dir=os.path.join(log_dir, 'forward'), name='forward_agent', **agent_params)
+    
+    print("are we even getting here")
+    print(f"env is {env.reset()}")
+    
+    out = fw_agent.improve()
     reset_agent.tf_writer_close()
     fw_agent.tf_writer_close()
     # Plot the reward and resets throughout training
@@ -110,13 +230,19 @@ if __name__ == '__main__':
                         help='Experiment Name')
     parser.add_argument('--decay_type', type=str, default=None,
                         help='Safety Decay Type', choices=list(decays.keys()) + [None])
+    parser.add_argument('--learn_ch', action='store_true',
+                        help=('q1.5'))
     
 
     args = parser.parse_args()
     assert 0 < args.safety_param < 1, 'safety_param should be between 0 and 1.'
     if args.learn_safely:
-        learn_safely(args.env_name, args.safety_param,
-                     args.output_dir, args.exp_name, args.decay_type)
+        if args.learn_ch:
+            learn_aman(args.env_name, args.safety_param,
+                        args.output_dir, args.exp_name)
+        else:
+            learn_safely(args.env_name, args.safety_param,
+                        args.output_dir, args.exp_name)
     else:
         learn_dangerously(args.env_name, args.safety_param,
                      args.output_dir, args.exp_name)
