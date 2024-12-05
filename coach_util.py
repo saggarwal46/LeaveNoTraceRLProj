@@ -41,14 +41,24 @@ def update_tensorboard_mets(self, phase=RunPhase.TRAIN):
         self.summary_writer.add_scalar('Epsilon', self.exploration_policy.get_control_param(), self.training_iteration)
         if hasattr(self.env.env, "_total_resets"):
             self.summary_writer.add_scalar('Total Resets', self.env.env._total_resets, self.training_iteration)
-        if hasattr(self.env.env, "q_min_func"):
-            q_min, safety_param = self.env.env.q_min_func(self.env.env._training_iter)
-            self.summary_writer.add_scalar('q_min', q_min, self.training_iteration)
-            self.summary_writer.add_scalar('safety_param', safety_param, self.training_iteration)
-        if hasattr(self.env.env, "_falling_off_cliff_reset_cnt"):
-            self.summary_writer.add_scalar('falling_off_cliff_reset', self.env.env._falling_off_cliff_reset_cnt, self.training_iteration)
-        if hasattr(self.env.env, "_falling_on_cliff_reset_cnt"):
-            self.summary_writer.add_scalar('falling_on_cliff_reset', self.env.env._falling_on_cliff_reset_cnt, self.training_iteration)
+        # if hasattr(self.env.env, "q_min_func"):
+        #     q_min, safety_param = self.env.env.q_min_func(self.env.env._training_iter)
+        #     self.summary_writer.add_scalar('q_min', q_min, self.training_iteration)
+        #     self.summary_writer.add_scalar('safety_param', safety_param, self.training_iteration)
+
+        # if hasattr(self.env.env, "_falling_off_cliff_reset_cnt"):
+        #     self.summary_writer.add_scalar('falling_off_cliff_reset', self.env.env._falling_off_cliff_reset_cnt, self.training_iteration)
+        #     print(f"why am i here")
+        # if hasattr(self.env.env, "_falling_on_cliff_reset_cnt"):
+        #     self.summary_writer.add_scalar('falling_on_cliff_reset', self.env.env._falling_on_cliff_reset_cnt, self.training_iteration)
+        #     print(f"why am i here too")
+        if hasattr(self.env.env, "_pusher_forward_cnt"):
+            self.summary_writer.add_scalar('pusher_forward_count', self.env.env._pusher_forward_cnt, self.training_iteration)
+            # print(f"we have push forward count")
+        if hasattr(self.env.env, "_pusher_reset_cnt"):
+            self.summary_writer.add_scalar('pusher_reset_count', self.env.env._pusher_reset_cnt, self.training_iteration)
+            # print(f"we have push reset count")
+            
         if phase == RunPhase.TRAIN:
             self.summary_writer.add_scalar(
                 "Training Reward", 

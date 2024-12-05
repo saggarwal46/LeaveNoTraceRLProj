@@ -24,6 +24,7 @@ import torch
 
 import tensorflow as tf
 
+import ipdb
 
 class SafetyWrapper(Wrapper):
     # TODO: allow user to specify number of reset attempts. Currently fixed at 1.
@@ -61,7 +62,7 @@ class SafetyWrapper(Wrapper):
         self.q_min_func = q_min_func
         # self._q_min = q_min
         self._obs = env.reset()
-        print(f"observation is {self._obs}")
+        # print(f"observation is {self._obs}")/
         self.ch_agent = ch_agent
         # Setup internal structures for logging metrics.
         self._total_resets = 0  # Total resets taken during training
@@ -69,6 +70,9 @@ class SafetyWrapper(Wrapper):
         self._reset_history = []
         self._reward_history = []
         self._training_iter = 0
+
+        self._pusher_reset_cnt = 0
+        self._pusher_forward_cnt = 0
         
         self._episode_count = 0
         
@@ -87,14 +91,15 @@ class SafetyWrapper(Wrapper):
         self.epsilon_min=0.01
         self.epsilon_decay=0.995
 
-
     def _reset(self):
         '''Internal implementation of reset() that returns additional info.'''
+        # print("RESETING BRO")
         obs = self._obs
         obs_vec = [np.argmax(obs)]
         for t in range(self._max_episode_steps):
             (reset_action, _) = self._reset_agent.choose_action(
                 {'observation': obs[:, None]}, phase=RunPhase.TRAIN)
+            # print("TAKING A STEP WOOO")
             (next_obs, r, _, info) = self.env.step(reset_action)
             reset_reward = self.env._reset_reward_fn(next_obs, reset_action)
             reset_done = self.env._reset_done_fn(next_obs)
@@ -153,38 +158,65 @@ class SafetyWrapper(Wrapper):
         return obs
 
     def step(self, action):
-        if self._reset_agent is not None:
+        if self._reset_agent is not None: 
             reset_q = self._reset_agent.get_q(self._obs, action)
             # forward_q = self._forward_agent.get_q(self._obs,action)
             # state = [env ,forward_q , reset_q]
             # epsilon = 1
             # epsilon_min=0.01
             # epsilon_decay=0.995
-            initial_state = self._obs
-            action2 = self.ch_agent.act(self._obs, self.epsilon) # 0 or 1
-            # print(f"Action is {action2} and type {type(action2)}")
-            if action2 == 0: # if action == 0
-                (obs, r, done, info) = self._reset()
-                self._obs = obs
-                ch_reward = 1 - r
-                # if r==0:
-                #     ch_reward = 1.0
-                # else:
-                #     ch_reward = 0.0
-            else:
-                (obs, r, done, info) = self.env.step(action)
-                self._episode_rewards.append(r)
-                self._obs = obs
-                ch_reward = r
+            
 
-            self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
-            # reward agent for being good boy
-            # ch_reward = torch.Tensor([5])
-            # ch_reward = r
-            self.ch_agent.step(state=initial_state, action=action2, reward=ch_reward, next_state=self._obs, done=done)
-            return (obs, r, done, info)
-            
-            
+            if self._training_iter < 700000: # original code
+                # print(f"Using original scheduler")
+                # next_state, reward, done, _ = env.step(action)
+                # print(f"USING TRAINING ITER: {self._training_iter}")
+                q_min_thresh, _ = self.q_min_func(self._training_iter)
+                q_min = -1 * (1. - 0.3) * self._max_episode_steps
+                if reset_q < q_min_thresh: # if action == 0
+                    print(f"IS THIS HITTING")
+                    (obs, r, done, info) = self._reset()
+                    self._obs = obs
+                else:
+                    (obs, r, done, info) = self.env.step(action)
+                    self._episode_rewards.append(r)
+                self._obs = obs
+                return (obs, r, done, info)
+            else: # choose agent
+                # print(f"Using choose policy")
+                initial_state = self._obs
+                action2 = self.ch_agent.act(self._obs, self.epsilon) # 0 or 1
+                # print(f"Action is {action2} and type {type(action2)}")
+                if action2 == 0: # if action == 0
+                    # print(f"selected reset policy")
+                    (obs, r, done, info) = self._reset()
+                    self._obs = obs
+                    ch_reward = r
+                    self._pusher_reset_cnt += 1
+                    # if r==0:
+                    #     ch_reward = 1.0
+                # else:
+                    #     ch_reward = 0.0
+                else:
+                    # print(f"selected forward policyx")
+                    (obs, r, done, info) = self.env.step(action)
+                    self._episode_rewards.append(r)
+                    self._obs = obs
+                    ch_reward = r
+                    self._pusher_forward_cnt += 1
+
+                self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
+                # reward agent for being good boy
+                # ch_reward = torch.Tensor([5])
+                # ch_reward = r
+                # ipdb.set_trace()
+                # print(f"about to be good boy")
+                self.ch_agent.step(state=initial_state, action=action2, reward=ch_reward, next_state=self._obs, done=done)
+                # print(f"became good boy")
+                # done = True # it works
+                return (obs, r, done, info)
+        
+        
 
             # # next_state, reward, done, _ = env.step(action)
             # # print(f"USING TRAINING ITER: {self._training_iter}")

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from math import exp
 import matplotlib
 matplotlib.use('Agg')
 
@@ -36,6 +37,7 @@ import numpy as np
 import gym
 from collections import deque
 import random
+import cv2
 
 # Define the Q-network
 class QNetworkpt(nn.Module):
@@ -78,7 +80,8 @@ class DDQNAgentpt:
     def step(self, state, action, reward, next_state, done):
         # Save experience in replay memory
         self.memory.append((state, action, reward, next_state, done))
-        if len(self.memory) > self.batch_size:
+        # print(f"length of memory is {len(self.memory)}")
+        if len(self.memory) >= self.batch_size:
             self.learn()
 
     def learn(self):
@@ -167,11 +170,18 @@ def learn_aman(
     log_dir = os.path.join(output_dir, exp_name)
     # 1. Create a reset agent that will reset the environment
     reset_agent = Agent(env, log_dir=os.path.join(log_dir, 'reset'), name='reset_agent', **agent_params)
-    ch_agent = DDQNAgentpt(10,2)
+    ch_agent = DDQNAgentpt(18,2)
+    decay_params = {
+        "initial_value": 0.9,
+        "min_value": 1 - safety_param,
+        "total_epochs": agent_params['num_training_iterations'], 
+        "decay_rate": 0.99999,
+    }
+    q_min_func = get_qmin_func('exponential', safety_param, lnt_params['max_episode_steps'], **decay_params)
     # 2. Create a wrapper around the environment to protect it
     safe_env = SafetyWrapper(env=env,
                              log_dir=log_dir,
-                             q_min_func=None,
+                             q_min_func=q_min_func,
                              reset_agent=reset_agent,
                              ch_agent=ch_agent,
                              **lnt_params)
@@ -180,7 +190,7 @@ def learn_aman(
     fw_agent = Agent(env=safe_env, log_dir=os.path.join(log_dir, 'forward'), name='forward_agent', **agent_params)
     
     print("are we even getting here")
-    print(f"env is {env.reset()}")
+    # print(f"env is {env.reset()}")
     
     out = fw_agent.improve()
     reset_agent.tf_writer_close()

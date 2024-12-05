@@ -94,12 +94,12 @@ def get_env(env_name, safety_param=0):
             a = np.zeros(env.action_space.shape[0])
             return (reset_reward_fn(s, a) > 0.7)
         max_episode_steps = 100
-        num_training_iterations = 1000000
+        num_training_iterations = 100000
         agent_type = 'DDPGAgent'
 
     elif env_name == 'cliff-walker':
         dist = 6
-        env = CliffWalkerEnv(with_reset_cost=True, use_custom_step=True)
+        env = CliffWalkerEnv(with_reset_cost=False, use_custom_step=True)
         def reset_reward_fn(s, a):
             (forward_reward, reset_reward) = env.env._get_rewards(s, a)
             return (reset_reward > 0.7) - 1.0
@@ -109,7 +109,7 @@ def get_env(env_name, safety_param=0):
         max_episode_steps = 500
         # num_training_iterations = 1000000
 
-        num_training_iterations = 1500
+        num_training_iterations = 1000000
         agent_type = 'DDPGAgent'
 
     elif env_name == 'cliff-cheetah':
