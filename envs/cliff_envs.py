@@ -154,48 +154,56 @@ class CliffWalkerEnv(Walker2dEnv):
 
 
 if __name__ == '__main__':
-    import time
     import os
-    from gym.wrappers import Monitor, TimeLimit
+    import cv2
+    import numpy as np
+    from gym.envs.mujoco import Walker2dEnv
+    from gym.wrappers import TimeLimit
 
-    # Set headless rendering backend
-    os.environ["MUJOCO_GL"] = "osmesa"
+    # Set the Mujoco headless rendering backend
+    os.environ["MUJOCO_GL"] = "osmesa"  # Use 'osmesa' if 'egl' fails
+    os.environ["DISPLAY"] = ""  # Unset DISPLAY to avoid GLFW attempting X11
+    os.environ["LD_PRELOAD"] = "/usr/lib/x86_64-linux-gnu/libGLEW.so"
 
-    # Initialize environment with TimeLimit and Monitor
-    env = TimeLimit(CliffWalkerEnv(), max_episode_steps=5000)
-    video_path = "video_output"
-    env = Monitor(env, video_path, force=True)
+    # Initialize environment
+    env = TimeLimit(CliffWalkerEnv(use_custom_step=True), max_episode_steps=5000)
 
-    # Access the unwrapped base environment
-    base_env = env.env
+    # Video writer settings
+    video_path = "walker2d_video.mp4"
+    frame_width = 640  # Adjust as needed
+    frame_height = 480  # Adjust as needed
+    fps = 30
 
-    # Adjust viewer camera settings
-    def adjust_camera(viewer):
-        viewer.cam.distance =  10.0     # Zoom out for a broader view
-        viewer.cam.elevation = -20     # Tilt the view for better perspective
-        viewer.cam.azimuth = 180       # Adjust horizontal rotation
-        viewer.cam.lookat[:] = [0.0, 0.0, 1.0]  # Center focus on the environment
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(video_path, fourcc, fps, (frame_width, frame_height))
 
-    # Reset the environment and force viewer initialization
-    base_env.reset()
-    base_env.render(mode="human")  # Force viewer initialization
+    # Reset environment
+    env.reset()
 
-    # Check and adjust the viewer
-    
+    try:
+        for _ in range(1000):
+            # Step environment
+            action = env.action_space.sample()
+            _, _, done, _ = env.step(action)
 
-    # Run the environment and record video
-    done = False
-    env.reset()  # Ensure proper reset before starting the loop
-    for _ in range(1000):
-        action = env.action_space.sample()
-        _, _, done, _ = env.step(action)
-        if hasattr(base_env, 'viewer') and base_env.viewer is not None:
-            adjust_camera(base_env.viewer)
-        else:
-            print("Viewer is not initialized. Ensure render() is called to initialize it.")
-        if done:
-            env.reset()  # Reset the environment when done
+            # Render frame as RGB array
+            frame = env.render(mode='rgb_array')
 
-    # Close environment
-    env.close()
+            # Resize frame to video dimensions
+            frame = cv2.resize(frame, (frame_width, frame_height))
+
+            # Convert RGB to BGR for OpenCV
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+            # Write frame to video
+            video_writer.write(frame_bgr)
+
+            if done:
+                env.reset()
+    except Exception as e:
+        print(f"Error during rendering or video writing: {e}")
+    finally:
+        video_writer.release()
+        env.close()
+
     print(f"Video saved to {video_path}")

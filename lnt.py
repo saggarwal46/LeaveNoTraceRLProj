@@ -29,15 +29,16 @@ import ipdb
 class SafetyWrapper(Wrapper):
     # TODO: allow user to specify number of reset attempts. Currently fixed at 1.
     def __init__(self, 
-                 env,
-                 log_dir,
-                 q_min_func,
-                 reset_agent,
-                 reset_reward_fn,
-                 reset_done_fn,
-                 ch_agent,
-                 **kwargs,
-                 ):
+                    env,
+                    log_dir,
+                    q_min_func,
+                    reset_agent,
+                    video_writer,
+                    reset_reward_fn,
+                    reset_done_fn,
+                    ch_agent,
+                    **kwargs,
+                    ):
         '''
         A SafetyWrapper protects the inner environment from danerous actions.
 
@@ -75,6 +76,7 @@ class SafetyWrapper(Wrapper):
         self._pusher_forward_cnt = 0
         
         self._episode_count = 0
+        self._elased_steps = 0
         
         self._falling_off_cliff_reset_cnt = 0
         self._falling_on_cliff_reset_cnt = 0
@@ -90,6 +92,30 @@ class SafetyWrapper(Wrapper):
         self.epsilon = 1
         self.epsilon_min=0.01
         self.epsilon_decay=0.995
+        
+        self.video_writer = video_writer
+        if self.video_writer is not None:
+            self.video_writer.create_new_video_writer(self._training_iter)
+            
+        self.video_every_iter = 100
+        
+    def generate_text(self, is_forward, env_done):
+        text = f"Forward: {is_forward}\n"
+        text += f"Reset: {not is_forward}\n"
+        text += f"Ep: {self._episode_count}\n"
+        text += f"Steps: {self._elased_steps}\n"
+        text += f"Iter: {self._training_iter}\n"
+        text += f"Env Done: {env_done}"
+        return text
+        
+    def step_w_video(self, ac, is_forward):
+        if self.video_writer is None or self.video_every_iter % 10 == 0:
+            return self.env.step(ac)
+        ret = self.env.step(ac)
+        frame = self.env.render(mode="rgb_array")
+        text = self.generate_text(is_forward, ret[2])
+        self.video_writer.render_frame(frame, text)
+        return ret
 
     def _reset(self):
         '''Internal implementation of reset() that returns additional info.'''
@@ -100,7 +126,9 @@ class SafetyWrapper(Wrapper):
             (reset_action, _) = self._reset_agent.choose_action(
                 {'observation': obs[:, None]}, phase=RunPhase.TRAIN)
             # print("TAKING A STEP WOOO")
-            (next_obs, r, _, info) = self.env.step(reset_action)
+            # (next_obs, r, _, info) = self.env.step(reset_action)
+            (next_obs, r, _, info) = self.step_w_video(reset_action, False)
+            self._elased_steps += 1
             reset_reward = self.env._reset_reward_fn(next_obs, reset_action)
             reset_done = self.env._reset_done_fn(next_obs)
             transition = Transition({'observation': obs[:, None]},
@@ -119,6 +147,10 @@ class SafetyWrapper(Wrapper):
         if not reset_done:
             curr_obs = obs
             obs = self.env.reset()
+            if self.video_writer is not None:
+                self.video_writer.done_video()
+                self.video_writer.create_new_video_writer(self._training_iter)
+            self._elased_steps = 0
             self._total_resets += 1
             # if self.env.env.falling_off_cliff(curr_obs):
             #     self._falling_off_cliff_reset_cnt += 1
@@ -130,6 +162,7 @@ class SafetyWrapper(Wrapper):
         self._reset_history.append(self._total_resets)
         self._reward_history.append(np.mean(self._episode_rewards))
         self._episode_count += 1
+        
 
         self._episode_rewards = []
 
@@ -147,6 +180,10 @@ class SafetyWrapper(Wrapper):
         if self._reset_agent is None:
             # print("RESET HERE")
             obs = self.env.reset()
+            if self.video_writer is not None:
+                self.video_writer.done_video()
+                self.video_writer.create_new_video_writer(self._training_iter)
+            self._elased_steps = 0
             self._total_resets += 1
             if self.env.env.falling_off_cliff(self._obs):
                 self._falling_off_cliff_reset_cnt += 1
@@ -167,7 +204,7 @@ class SafetyWrapper(Wrapper):
             # epsilon_decay=0.995
             
 
-            if self._training_iter < 700000: # original code
+            if self._training_iter < 7000: # original code
                 # print(f"Using original scheduler")
                 # next_state, reward, done, _ = env.step(action)
                 # print(f"USING TRAINING ITER: {self._training_iter}")
@@ -178,7 +215,9 @@ class SafetyWrapper(Wrapper):
                     (obs, r, done, info) = self._reset()
                     self._obs = obs
                 else:
-                    (obs, r, done, info) = self.env.step(action)
+                    # (obs, r, done, info) = self.env.step(action)
+                    (obs, r, done, info) = self.step_w_video(action, True)
+                    self._elased_steps += 1
                     self._episode_rewards.append(r)
                 self._obs = obs
                 return (obs, r, done, info)
@@ -199,7 +238,9 @@ class SafetyWrapper(Wrapper):
                     #     ch_reward = 0.0
                 else:
                     # print(f"selected forward policyx")
-                    (obs, r, done, info) = self.env.step(action)
+                    # (obs, r, done, info) = self.env.step(action)
+                    (obs, r, done, info) = self.step_w_video(action, True)
+                    self._elased_steps += 1
                     self._episode_rewards.append(r)
                     self._obs = obs
                     ch_reward = r
@@ -231,7 +272,9 @@ class SafetyWrapper(Wrapper):
             # self._obs = obs
             # return (obs, r, done, info)
         # print("STEP HERE")
-        (obs, r, done, info) = self.env.step(action)
+        # (obs, r, done, info) = self.env.step(action)
+        (obs, r, done, info) = self.step_w_video(action, True)
+        self._elased_steps += 1
         self._episode_rewards.append(r)
         self._obs = obs
         return (obs, r, done, info)

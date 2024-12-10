@@ -119,12 +119,63 @@ class DDQNAgentpt:
         for target_param, local_param in zip(target_model.parameters(), local_model.parameters()):
             target_param.data.copy_(self.tau * local_param.data + (1.0 - self.tau) * target_param.data)
 
+
+class VWriter:
+    def __init__(self, env, exp_name, result_dir):
+        import time
+        import os
+        import numpy as np
+        from gym.wrappers import TimeLimit
+
+        # Set headless rendering backend
+        os.environ["MUJOCO_GL"] = "osmesa"
+
+        # Initialize video writer
+        self.exp_name = exp_name
+        self.fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Codec for mp4
+        self.fps = 30  # Frames per second
+        self.video_writer = None
+        env.reset()
+        frame = env.render(mode="rgb_array")  # Get initial frame
+        self.height, self.width, _ = frame.shape
+        
+        self.position = (10, 30)
+        self.font=cv2.FONT_HERSHEY_SIMPLEX
+        self.font_scale = 1
+        self.font_color=(255,0, 0)
+        self.thickness=2
+        self.result_dir = result_dir
+        self.cnt = 0
+        
+    def create_new_video_writer(self, iter):
+        if self.video_writer is not None:
+            raise ValueError("Video Writer already defined")
+        video_path = os.path.join(self.result_dir, f"{self.exp_name}_{iter}_{self.cnt}.mp4")
+        self.video_writer = cv2.VideoWriter(video_path, self.fourcc, self.fps, (self.width, self.height))
+
+    def render_frame(self, frame, text):
+        # frame = base_env.render(mode="rgb_array")  # Render frame as an image
+    
+        # Add text overlay to the frame
+        # overlay_text = f"Step: {step_count} | Action: {action}"
+
+        frame = cv2.putText(frame, text, self.position, self.font, self.font_scale, self.color, self.thickness, lineType=cv2.LINE_AA)
+        
+        # Write frame to video
+        self.video_writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+        
+    def done_video(self):
+        self.video_writer.release()
+        self.video_writer = None
+        self.cnt += 1
+
 def learn_safely(
     env_name,
     safety_param,
     output_dir,
     exp_name,
-    schedule_type=None
+    schedule_type=None,
+    video=False,
     ):
     print(f"USING DECAY TYPE: {schedule_type}")
     (env, lnt_params, agent_params) = get_env(env_name, safety_param)
@@ -142,12 +193,15 @@ def learn_safely(
     }
     q_min_func = get_qmin_func(schedule_type, safety_param, lnt_params['max_episode_steps'], **decay_params)
         
-
+    video_writer = None
+    if video:
+        video_writer = VWriter(env, exp_name, os.path.join(log_dir, "videos"))
     # 2. Create a wrapper around the environment to protect it
     safe_env = SafetyWrapper(env=env,
                              log_dir=log_dir,
                              q_min_func=q_min_func,
                              reset_agent=reset_agent,
+                             video_writer=video_writer
                              **lnt_params)
     # agent_params["iter_callbk"] = partial(safe_env.training_iter_callback, safe_env)
     # 3. Safely learn to solve the task.
@@ -163,7 +217,8 @@ def learn_aman(
     env_name,
     safety_param,
     output_dir,
-    exp_name):
+    exp_name,
+    video):
     print(f"im hitting this")
     (env, lnt_params, agent_params) = get_env(env_name, safety_param)
 
@@ -179,10 +234,14 @@ def learn_aman(
     }
     q_min_func = get_qmin_func('exponential', safety_param, lnt_params['max_episode_steps'], **decay_params)
     # 2. Create a wrapper around the environment to protect it
+    video_writer = None
+    if video:
+        video_writer = VWriter(env, exp_name, os.path.join(log_dir, "videos"))
     safe_env = SafetyWrapper(env=env,
                              log_dir=log_dir,
                              q_min_func=q_min_func,
                              reset_agent=reset_agent,
+                             video_writer=video_writer,
                              ch_agent=ch_agent,
                              **lnt_params)
 
@@ -204,14 +263,19 @@ def learn_dangerously(
     env_name,
     safety_param,
     output_dir,
-    exp_name 
+    exp_name,
+    video
     ):
     # print("LEARNING DANGEROUSY")
     log_dir = os.path.join(output_dir, exp_name)
     (env, lnt_params, agent_params) = get_env(env_name)
+    video_writer = None
+    if video:
+        video_writer = VWriter(env, exp_name, os.path.join(log_dir, "videos"))
     safe_env = SafetyWrapper(env=env,
                              log_dir=log_dir,
                              reset_agent=None,
+                             video_writer=video_writer,
                              **lnt_params)
     agent = Agent(safe_env, log_dir=os.path.join(log_dir, 'forward_only'), name='agent', **agent_params)
     agent.improve()
@@ -242,6 +306,8 @@ if __name__ == '__main__':
                         help='Safety Decay Type', choices=list(decays.keys()) + [None])
     parser.add_argument('--learn_ch', action='store_true',
                         help=('q1.5'))
+    parser.add_argument('--video', action='store_true',
+                        help=('Save Video'))
     
 
     args = parser.parse_args()
@@ -249,10 +315,10 @@ if __name__ == '__main__':
     if args.learn_safely:
         if args.learn_ch:
             learn_aman(args.env_name, args.safety_param,
-                        args.output_dir, args.exp_name)
+                        args.output_dir, args.exp_name, args.video)
         else:
             learn_safely(args.env_name, args.safety_param,
-                        args.output_dir, args.exp_name)
+                        args.output_dir, args.exp_name, args.video)
     else:
         learn_dangerously(args.env_name, args.safety_param,
-                     args.output_dir, args.exp_name)
+                     args.output_dir, args.exp_name, args.video)
